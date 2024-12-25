@@ -1,1 +1,7 @@
-$grey: #333;
+@use 'sass:color';
+
+$blue: #40C9FF;
+$magenta: #c000ff;
+
+$dark-grey: #121212;
+$light-grey: color.mix(white, #121212, 15%);

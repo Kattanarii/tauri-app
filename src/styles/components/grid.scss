@@ -1,65 +1,184 @@
 @use '../abstracts' as *;
 
-.container {
+.main-container {
+    position: relative;
     width: 100vw;
     height: 100vh;
+
+    .scale {
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        border: 0.15rem solid $light-grey;
+        background-color: $dark-grey;
+        color: white;
+        padding: 0.25rem 0.75rem;
+        border-radius: 0.5rem;
+    }
 }
 
 .grid {
     width: 100%;
     height: 100%;
     display: grid;
-    grid-template-columns: repeat(auto-fill, 2rem);
-    grid-template-rows: repeat(auto-fill, 2rem);
-    background: radial-gradient(circle, $grey 0.1rem, transparent 0.1rem);
-    background-size: 2rem 2rem;
-    background-position: -1rem -1rem;
-    cursor: grab;
+    grid-template-columns: repeat(auto-fill, 0.5rem);
+    grid-template-rows: repeat(auto-fill, 0.5rem);
     transform-origin: top left;
-    border-top: 0.15rem solid $grey;
-    border-left: 0.15rem solid $grey;
+    border-top: 0.15rem solid $light-grey;
+    border-left: 0.15rem solid $light-grey;
+    cursor: grab;
 
-    &:has(.resizing) {
-        cursor: nwse-resize;
-    }
-
-    &:has(.dragging) {
-        cursor: move;
-    }
+    &:has(.element.resize-horizontal) { cursor: ew-resize; }
+    &:has(.element.resize-both) { cursor: nw-resize; }
+    &:has(.element.resize-vertical) { cursor: ns-resize; }
+    &:has(.dragging) { cursor: move; }
+    &:not(.dragging, .resize-horizontal, .resize-both, .resize-vertical) { cursor: default; }
 
     .element {
         position: relative;
-        border: 0.15rem solid $grey;
+        border: 0.15rem solid $light-grey;
         border-radius: 1rem;
-        background-color: black;
-        box-shadow: 0 0 1rem $grey;
-       
-        &:not(.dragging):not(.resizing) {
-            cursor: default;
+        background-color: $dark-grey;
+        box-shadow: 0 0 1rem $light-grey;
+
+        &.resize-both:not(.resize-vertical, .resize-horizontal) { 
+            .resize-horizontal { cursor: nw-resize; }
+            .resize-vertical { cursor: nw-resize; }
         }
 
         .drag {
-            position: absolute;
-            top: 0;
+            position: relative;
             width: 100%;
             height: 1rem;
-            background-color: $grey;
+            background-color: $light-grey;
             border-top-left-radius: 0.7rem;
             border-top-right-radius: 0.7rem;
             cursor: move;
+
+            &::after {
+                content: '';
+                position: absolute;
+                top: -0.15rem;
+                width: 100%;
+                height: calc(100% + 0.15rem);
+            }
         }
 
-        .resize {
+        .resize-horizontal {
             position: absolute;
-            width: 0;
-            height: 0;
-            border-style: solid;
-            border-width: 0 0 1.5rem 1.5rem;
-            border-bottom-right-radius: 0.4rem;
-            border-color: transparent transparent $grey transparent;
-            bottom: 0.3rem;
-            right: 0.3rem;
-            cursor: nwse-resize;
+            right: 0;
+            top: 0;
+            height: calc(100% - 0.5rem);
+            width: 0.5rem;
+            cursor: ew-resize;
+        }
+
+        .resize-both {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 0.5rem;
+            height: 0.5rem;
+            cursor: nw-resize;
+        }
+
+        .resize-vertical {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 0.5rem;
+            width: calc(100% - 0.5rem);
+            cursor: ns-resize;
+        }
+    }
+}
+
+.notepad {
+    height: calc(100% - 2rem);
+    color: white;
+    position: relative;
+    padding: 1rem;
+    padding-right: 0.5rem;
+    padding-bottom: 0;
+
+    .close {
+        position: absolute;
+        top: 0;
+        left: calc(100% + 0.5rem);
+        background-color: $dark-grey;
+        border: 0.15rem solid $light-grey;
+        padding: 0.5rem;
+        width: 2rem;
+        height: 2rem;
+        cursor: pointer;
+        border-radius: 0.5rem;
+        font-weight: bold;
+
+        &:hover, &:focus-visible {
+            background-color: $light-grey;
+        }
+
+        &::after {
+            position: absolute;
+            content: "\2715";
+            color: white;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+    }
+
+    .toolbar {
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-start;
+        position: absolute;
+        top: 2.5rem;
+        left: calc(100% + 0.5rem);
+        border: 0.15rem solid $light-grey;
+        border-radius: 0.5rem;
+        overflow: hidden;
+
+        button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 2rem;
+            height: 2rem;
+            padding: 0.5rem;
+            background-color: $dark-grey;
+            outline: none;
+            border: none;
+            cursor: pointer;
+            color: white;
+            font-weight: bold;
+
+            &:hover, &:focus-visible {
+                background-color: $light-grey;
+            }
+            
+            &:has(.list) {
+                padding: 0.2rem;
+            }
+
+            svg, path {
+                width: 100%;
+                height: 100%;
+            }
+        }
+    }
+
+    .DraftEditor-root {
+        overflow-y: auto;
+    }
+
+    .DraftEditor-root, .DraftEditor-editorContainer, .public-DraftEditor-content {
+        height: 100%;
+    } 
+
+    .public-DraftEditor-content {
+        ul, ol {
+            padding-left: 1rem;
         }
     }
 }
