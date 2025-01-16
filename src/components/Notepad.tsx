@@ -6,13 +6,11 @@ import { ItalicIcon } from "../assets/ItalicIcon"
 import { UnderlineIcon } from "../assets/UnderlineIcon"
 import { ListIcon } from "../assets/ListIcon"
 import { NumberedListIcon } from "../assets/NumberedListIcon"
-import { useMainStore } from "../store/useMainStore"
 import { StrikethroughIcon } from "../assets/StrikethroughIcon"
 import Database from "@tauri-apps/plugin-sql"
 
-export function Notepad({ id, dataToLoad }: { id: string, dataToLoad?: { id: string, content: string, position: string } }) {
+export function Notepad({ id, dataToLoad }: { id: string, dataToLoad?: Note }) {
     const [ editorState, setEditorState ] = useState(() => EditorState.createEmpty())
-    const removeGridElement = useMainStore(state => state.removeGridElement)
 
     const toggleInlineStyle = (style: string) => {
         const newState = RichUtils.toggleInlineStyle(editorState, style)
@@ -22,17 +20,6 @@ export function Notepad({ id, dataToLoad }: { id: string, dataToLoad?: { id: str
     const toggleBlockType = (blockType: string) => {
         const newState = RichUtils.toggleBlockType(editorState, blockType)
         setEditorState(newState)
-    }
-
-    const handleClose = async () => {
-        removeGridElement(id)
-        try {
-            const db = await Database.load("sqlite:data.db")
-
-            await db.execute("DELETE FROM notes WHERE id LIKE $1", [id])
-        } catch(error) {
-            console.log("Failed to delete note: ", error)
-        }
     }
 
     const saveNote = async () => {
@@ -59,16 +46,15 @@ export function Notepad({ id, dataToLoad }: { id: string, dataToLoad?: { id: str
 
     useEffect(() => {
         if(dataToLoad?.content) {
-            const rawContent = JSON.parse(dataToLoad.content!)
+            const rawContent = JSON.parse(dataToLoad.content)
             const contentState = convertFromRaw(rawContent)
             const newEditorState = EditorState.createWithContent(contentState)
             setEditorState(newEditorState)
         }
     }, [])
 
-    return <GridElement id={id} storedPosition={dataToLoad?.position}>
+    return <GridElement id={id} storedPosition={dataToLoad?.position} defaultSize="20 / 20 / span 45 / span 69" type="note">
         <div className="notepad">
-            <span className="close" onClick={() => handleClose()}></span>
             <div className="toolbar">
                 <div>
                     <button onClick={() => toggleInlineStyle('BOLD')}><BoldIcon /></button>

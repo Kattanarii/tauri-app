@@ -15,7 +15,7 @@ export function ImportIcon({ ...props }) {
           stroke="#000"
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeWidth={2}
+          strokeWidth={2.5}
         >
           <path d="M15 13L11 13 11 9" />
           <path data-name="primary" d="M21 3L11 13" />

@@ -10,6 +10,10 @@ type MainStore = {
     gridElements: React.ReactElement[]
     addGridElement: (element: React.ReactElement) => void
     removeGridElement: (id: string) => void
+    clearGrid: () => void
+
+    autoClickerLimit: number
+    setAutoClickerLimit: (value: number) => void
 }
 
 export const useMainStore = create<MainStore>(set => ({
@@ -27,5 +31,9 @@ export const useMainStore = create<MainStore>(set => ({
 
     gridElements: [],
     addGridElement: (element) => set(state => ({ gridElements: [ ...state.gridElements, element ]})),
-    removeGridElement: (id) => set(state => ({ gridElements: [ ...state.gridElements.filter(gridElement => gridElement?.props.id !== id) ]})),
+    removeGridElement: (id) => set(state => ({ gridElements: state.gridElements.filter(element => element.props.id !== id) })),
+    clearGrid: () => set({ gridElements: [] }),
+
+    autoClickerLimit: 1,
+    setAutoClickerLimit: (value) => set({ autoClickerLimit: value })
 }))

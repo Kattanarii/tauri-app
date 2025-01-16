@@ -2,15 +2,17 @@ import { BaseSyntheticEvent, useEffect, useRef, useState } from "react"
 import { useMainStore } from "../store/useMainStore"
 import Database from "@tauri-apps/plugin-sql"
 
-export function GridElement({ children, id, storedPosition }: { children: React.ReactNode, id: string, storedPosition?: string }) {
-    const [ position, setPosition ] = useState({ row: 20, col: 20 })
-    const [ size, setSize ] = useState({ rowSpan: 45, colSpan: 69 })
+export function GridElement({ children, id, storedPosition, defaultSize, type }: { children: React.ReactNode, id: string, storedPosition?: string, defaultSize: string, type: string }) {
+    const [ position, setPosition ] = useState({ row: 0, col: 0 })
+    const [ size, setSize ] = useState({ rowSpan: 0, colSpan: 0 })
     const scale = useMainStore(state => state.gridScale)
     const setGridSize = useMainStore(state => state.setGridSize)
     const gridSize = useMainStore(state => state.gridSize)
     const elementRef = useRef<HTMLDivElement>(null) 
     const gridCellSize = 16 * 0.5
     const [ loaded, setLoaded ] = useState(false)
+    const setAutoClickerLimit = useMainStore(state => state.setAutoClickerLimit)
+    const removeGridElement = useMainStore(state => state.removeGridElement)
 
     const handleResizeBoth = (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
         e.preventDefault()
@@ -23,8 +25,20 @@ export function GridElement({ children, id, storedPosition }: { children: React.
 
             elementRef.current?.classList.add('resize-both')
 
-            const newRowSpan = Math.max(1, Math.round((size.rowSpan * gridCellSize + deltaY / scale) / gridCellSize))
-            const newColSpan = Math.max(1, Math.round((size.colSpan * gridCellSize + deltaX / scale) / gridCellSize)) 
+            let newRowSpan = 1
+            let newColSpan = 1
+
+            if(type === 'clicker') {
+                const data = defaultSize.match(/\d+/g)?.map(Number) as number[]
+
+                newRowSpan = Math.max(data[2], Math.round((size.rowSpan * gridCellSize + deltaY / scale) / gridCellSize))
+                newColSpan = Math.max(data[3], Math.round((size.colSpan * gridCellSize + deltaX / scale) / gridCellSize)) 
+            }
+            if(type === 'note') {
+                newRowSpan = Math.max(32, Math.round((size.rowSpan * gridCellSize + deltaY / scale) / gridCellSize))
+                newColSpan = Math.max(32, Math.round((size.colSpan * gridCellSize + deltaX / scale) / gridCellSize)) 
+            }
+            
             setSize({ rowSpan: newRowSpan, colSpan: newColSpan })
         }
 
@@ -47,7 +61,16 @@ export function GridElement({ children, id, storedPosition }: { children: React.
 
             elementRef.current?.classList.add('resize-horizontal')
 
-            const newColSpan = Math.max(1, Math.round((size.colSpan * gridCellSize + deltaX / scale) / gridCellSize)) 
+            let newColSpan = 1
+            if(type === 'clicker') {
+                const data = defaultSize.match(/\d+/g)?.map(Number) as number[]
+
+                newColSpan = Math.max(data[3], Math.round((size.colSpan * gridCellSize + deltaX / scale) / gridCellSize))
+            }
+            if(type === 'note') {
+                newColSpan = Math.max(32, Math.round((size.colSpan * gridCellSize + deltaX / scale) / gridCellSize))
+            }
+            
             setSize(prev => ({ ...prev, colSpan: newColSpan }))
         }
 
@@ -70,7 +93,16 @@ export function GridElement({ children, id, storedPosition }: { children: React.
 
             elementRef.current?.classList.add('resize-vertical')
 
-            const newRowSpan = Math.max(1, Math.round((size.rowSpan * gridCellSize + deltaY / scale) / gridCellSize)) 
+            let newRowSpan = 1
+            if(type === 'clicker') {
+                const data = defaultSize.match(/\d+/g)?.map(Number) as number[]
+
+                newRowSpan = Math.max(data[2], Math.round((size.rowSpan * gridCellSize + deltaY / scale) / gridCellSize)) 
+            }
+            if(type === 'note') {
+                newRowSpan = Math.max(32, Math.round((size.rowSpan * gridCellSize + deltaY / scale) / gridCellSize)) 
+            }
+
             setSize(prev => ({ ...prev, rowSpan: newRowSpan }))
         }
 
@@ -115,13 +147,25 @@ export function GridElement({ children, id, storedPosition }: { children: React.
         try {
             const db = await Database.load('sqlite:data.db')
 
-            const [noteExists]: Note[] = await db.select("SELECT * FROM notes WHERE id LIKE $1", [id])
+            if(type === 'note') {
+                const [noteExists]: Note[] = await db.select("SELECT * FROM notes WHERE id LIKE $1", [id])
+    
+                const newPosition = `${position.row} / ${position.col} / span ${size.rowSpan} / span ${size.colSpan}` 
+                
+                if(noteExists) return await db.execute("UPDATE notes SET position = $1 WHERE id LIKE $2", [newPosition, id])
+    
+                await db.execute("INSERT INTO notes (id, position) VALUES($1, $2)", [id, newPosition])
+            }
 
-            const newPosition = `${position.row} / ${position.col} / span ${size.rowSpan} / span ${size.colSpan}` 
-            
-            if(noteExists) return await db.execute("UPDATE notes SET position = $1 WHERE id LIKE $2", [newPosition, id])
-
-            await db.execute("INSERT INTO notes (id, position) VALUES($1, $2)", [id, newPosition])
+            if(type === 'clicker') {
+                const [clickerExists]: AutoClicker[] = await db.select("SELECT * FROM auto_clicker WHERE id LIKE $1", [id])
+    
+                const newPosition = `${position.row} / ${position.col} / span ${size.rowSpan} / span ${size.colSpan}` 
+                
+                if(clickerExists) return await db.execute("UPDATE auto_clicker SET position = $1 WHERE id LIKE $2", [newPosition, id])
+    
+                await db.execute("INSERT INTO auto_clicker (id, position) VALUES($1, $2)", [id, newPosition])
+            }
         } catch (error) {
             console.error("Failed to save data:", error)
         }
@@ -142,7 +186,13 @@ export function GridElement({ children, id, storedPosition }: { children: React.
 
     useEffect(() => {
         const data = storedPosition?.match(/\d+/g)?.map(Number)
-        if(!data) return setLoaded(true)
+        if(!data) {
+            const defaultData = defaultSize.match(/\d+/g)?.map(Number) as number[]
+            setPosition({ row: defaultData[0], col: defaultData[1] })
+            setSize({ rowSpan: defaultData[2], colSpan: defaultData[3] })  
+            setLoaded(true)
+            return
+        }
 
         setPosition({ row: data[0], col: data[1] })
         setSize({ rowSpan: data[2], colSpan: data[3] })       
@@ -157,6 +207,29 @@ export function GridElement({ children, id, storedPosition }: { children: React.
         parent.appendChild(child)
     }
 
+    const handleClose = async () => {
+        removeGridElement(id)
+        if(type === 'note') {
+            try {
+                const db = await Database.load("sqlite:data.db")
+    
+                await db.execute("DELETE FROM notes WHERE id LIKE $1", [id])
+            } catch(error) {
+                console.log("Failed to delete note: ", error)
+            }
+        }
+        if(type === 'clicker') {
+            setAutoClickerLimit(1)
+            try {
+                const db = await Database.load("sqlite:data.db")
+
+                await db.execute("DELETE FROM auto_clicker WHERE id LIKE $1", [id])
+            } catch(error) {
+                console.log("Failed to delete clicker: ", error)
+            }
+        }
+    }
+
     return <>
         <div className="element"
         ref={ elementRef }
@@ -169,6 +242,7 @@ export function GridElement({ children, id, storedPosition }: { children: React.
             gridColumn: `${position.col} / span ${size.colSpan}`,
         }}>
             <div className="drag" onMouseDown={handleDrag}></div>
+            <span className="close" onClick={handleClose}></span>
             { children }
             <div className="resize-horizontal" onMouseDown={handleResizeHorizontal}></div>
             <div className="resize-both" onMouseDown={handleResizeBoth}></div>

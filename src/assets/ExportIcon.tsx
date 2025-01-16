@@ -15,7 +15,7 @@ export function ExportIcon({ ...props }) {
           stroke="#000"
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeWidth={2}
+          strokeWidth={2.5}
         >
           <path d="M17 3L21 3 21 7" />
           <path data-name="primary" d="M11 13L21 3" />

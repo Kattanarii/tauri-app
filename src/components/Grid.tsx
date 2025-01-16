@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useMainStore } from "../store/useMainStore"
 import { Notepad } from "./Notepad"
 import Database from "@tauri-apps/plugin-sql"
+import { AutoClicker } from "./AutoClicker"
 
 export function Grid() {
     const [ scale, setScale ] = useState(1)
@@ -63,16 +64,37 @@ export function Grid() {
         try {
             const db = await Database.load('sqlite:data.db')
 
-            const storedNotes: Note[] = await db.select("SELECT * FROM notes")
+            await db.execute(`CREATE TABLE IF NOT EXISTS notes (
+                id VARCHAR(10) NOT NULL, 
+                content VARCHAR(30), 
+                position VARCHAR(10), 
+                PRIMARY KEY(id))`)
+            await db.execute(`CREATE TABLE IF NOT EXISTS auto_clicker (
+                id VARCHAR(10) NOT NULL, 
+                mouse_button VARCHAR(10), 
+                click_interval INTEGER(10), 
+                click_type VARCHAR(10), 
+                trigger_key VARCHAR(10), 
+                position VARCHAR(10), 
+                PRIMARY KEY(id))`)
 
-            storedNotes.forEach((note, index) => {
+            const storedNotes: Note[] = await db.select("SELECT * FROM notes")
+            storedNotes.forEach(note => {
                 if(loadedElements.current.has(note.id)) return
                 loadedElements.current.add(note.id)
-
-                addGridElement(<Notepad id={note.id!} dataToLoad={storedNotes[index]}/>)
+                
+                addGridElement(<Notepad id={note.id} dataToLoad={note} key={note.id}/>)
             })
+            
+            const [storedClicker]: AutoClicker[] = await db.select("SELECT * FROM auto_clicker")
+            if(storedClicker) {
+                if(loadedElements.current.has(storedClicker.id)) return
+                loadedElements.current.add(storedClicker.id)
+                
+                addGridElement(<AutoClicker id={storedClicker.id} dataToLoad={storedClicker} key={storedClicker.id} />)
+            }
         } catch (error) {
-            console.error("Failed to load note:", error)
+            console.error("Failed to load data:", error)
         }
     }
 
@@ -94,9 +116,7 @@ export function Grid() {
                     height: `${gridSize.height}px`,
                     transform: `scale(${scale}) translate(${position.x}px, ${position.y}px)`
                 }}>
-                {gridElements.map((element, index) => (
-                    <Fragment key={index}>{element}</Fragment>
-                ))}
+                <>{...gridElements}</>
             </div>
             <div className="scale">{(scale * 100).toFixed(0)} %</div>
         </div>

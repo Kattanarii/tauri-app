@@ -11,7 +11,7 @@
     top: 5rem;
     left: 1rem;
     width: 20rem;
-    height: 40rem;
+    height: 35rem;
     border-radius: 0.5rem;
     background-color: $dark-grey;
     border: 0.15rem solid $light-grey;
@@ -25,6 +25,21 @@
         pointer-events: all;
     }
 
+    .clear {
+        display: flex;
+        margin-top: auto;
+
+        &:hover {
+            path {
+                fill: white;
+            }
+        }
+
+        path {
+            fill: $light-grey;
+        }
+    }
+
     .import-export {
         width: 100%;
         display: flex;
@@ -32,7 +47,6 @@
         justify-content: center;
         gap: 2rem;
         color: white;
-        margin-top: auto;
 
         span {
             width: 1.2rem;
@@ -100,6 +114,7 @@
 
     &:hover {
         background-color: $light-grey;
+        box-shadow: 0 0 1rem $light-grey;
     }
 
     span {
