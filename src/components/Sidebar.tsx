@@ -1,16 +1,19 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Notepad } from "./Notepad"
 import { useMainStore } from "../store/useMainStore"
 import genUid from "light-uid"
-import { NoteIcon } from "../assets/NoteIcon"
-import { ExportIcon } from "../assets/ExportIcon"
-import { ImportIcon } from "../assets/ImportIcon"
+import { NoteIcon } from "../assets/SidebarIcons/NoteIcon"
+import { ExportIcon } from "../assets/SidebarIcons/ExportIcon"
+import { ImportIcon } from "../assets/SidebarIcons/ImportIcon"
 import { open, save } from "@tauri-apps/plugin-dialog"
-import { BaseDirectory, copyFile } from "@tauri-apps/plugin-fs"
 import { AutoClicker } from "./AutoClicker"
-import { MouseIcon } from "../assets/MouseIcon"
+import { MouseIcon } from "../assets/SidebarIcons/MouseIcon"
 import Database from "@tauri-apps/plugin-sql"
-import { ClearIcon } from "../assets/ClearIcon"
+import { ClearIcon } from "../assets/SidebarIcons/ClearIcon"
+import { Clock } from "./Clock/Clock"
+import { ClockIcon } from "../assets/SidebarIcons/ClockIcon"
+import { invoke } from "@tauri-apps/api/core"
+import * as path from '@tauri-apps/api/path'
 
 export function Sidebar() {
     const [ showSidebar, setShowSidebar ] = useState(false)
@@ -20,15 +23,16 @@ export function Sidebar() {
     const autoClickerLimit = useMainStore(state => state.autoClickerLimit)
     const setAutoClickerLimit = useMainStore(state => state.setAutoClickerLimit)
     const clearGrid = useMainStore(state => state.clearGrid)
+    let db: Database
 
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleClickOutside = useCallback((e: MouseEvent) => {
         if(e.target !== iconRef.current) setShowSidebar(false)
-    }
+    }, [])
 
     useEffect(() => {
         window.addEventListener('click', handleClickOutside)
         return () => window.removeEventListener('click', handleClickOutside)
-    }, [])
+    }, [handleClickOutside])
 
     const handleNewNote = async () => {
         const uId = genUid()
@@ -45,44 +49,58 @@ export function Sidebar() {
         setShowSidebar(false)
     }
 
-    const handleExport = async () => {
-        const path = await save({ filters: [{ name: "database", extensions: ['db', 'sqlite'] }], defaultPath: "data.db" })
-        if(!path) return
+    const handleNewClock = async () => {
+        const uId = genUid()
+        addGridElement(<Clock id={uId} key={uId}/>)
+        setShowSidebar(false)
+    }
 
-        await copyFile('data.db', path, { fromPathBaseDir: BaseDirectory.AppData })
+    const handleExport = async () => {
+        const dstPath = await save({ defaultPath: "data.zip" , filters: [{ name: "ZIP File", extensions: ["zip"] }] })
+        if(!dstPath) return
+
+        const srcPath = await path.appDataDir()
+        await invoke('export', { src: srcPath, dst: dstPath })
         setShowSidebar(false)
     }
 
     const handleImport = async () => {
-        const path = await open({ filters: [{ name: "database", extensions: ['db', 'sqlite'] }] })
-        if(!path) return
+        const srcPath = await open({ defaultPath: "data.zip", filters: [{ name: "ZIP File", extensions: ['zip'] }] })
+        if(!srcPath) return
 
-        await copyFile(path, 'data.db', { toPathBaseDir: BaseDirectory.AppData })
+        const dstPath = await path.appDataDir()
+        await invoke('import', { src: srcPath, dst: dstPath })
         window.location.reload()
+        setShowSidebar(false)
     }
 
     const handleClear = async () => {
         clearGrid()
 
         try {
-            const db = await Database.load("sqlite:data.db")
+            if(!db) db = await Database.load("sqlite:data.db")
 
-            await db.execute("TRUNCATE TABLE notes")
-            await db.execute("TRUNCATE TABLE auto_clicker")
+            await db.execute("DELETE FROM notes")
+            await db.execute("DELETE FROM autoClicker")
+            await db.execute("DELETE FROM clocks")
         } catch(error) {
             console.log(error)
         }
     }
 
     return <>   
-        <div className="sidebar-icon" onClick={() => setShowSidebar(true)} ref={ iconRef }>
+        <div className="sidebar-icon" onClick={(e) => { 
+            e.stopPropagation()
+            setShowSidebar(!showSidebar) 
+            }} ref={ iconRef }>
             <span></span>
             <span></span>
             <span></span>
         </div>
         <div className={`sidebar ${showSidebar ? 'show' : ''}`} onClick={(e) => e.stopPropagation()} ref={ sidebarRef }>
-            <button onClick={handleNewNote}><span><NoteIcon /></span> New note</button>
-            <button onClick={handleNewAutoClicker}><span><MouseIcon /></span>Auto clicker</button>
+            <button onClick={handleNewNote}><span><NoteIcon /></span> New Note</button>
+            <button onClick={handleNewClock}><span><ClockIcon /></span>New Clock</button>
+            <button onClick={handleNewAutoClicker}><span><MouseIcon /></span>Auto Clicker</button>
             <button onClick={handleClear} className="clear"><span><ClearIcon /></span>Clear grid</button>
             <div className="import-export">
                 <button onClick={handleExport}><span><ExportIcon /></span>Export</button>

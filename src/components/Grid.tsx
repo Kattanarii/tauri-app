@@ -1,20 +1,22 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useMainStore } from "../store/useMainStore"
 import { Notepad } from "./Notepad"
 import Database from "@tauri-apps/plugin-sql"
 import { AutoClicker } from "./AutoClicker"
+import { Clock } from "./Clock/Clock"
 
 export function Grid() {
-    const [ scale, setScale ] = useState(1)
     const [ position, setPosition ] = useState({ x: 0, y: 0 })
     const gridRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
+    const gridScale = useMainStore(state => state.gridScale)
     const setGridScale = useMainStore(state => state.setGridScale)
     const setGridSize = useMainStore(state => state.setGridSize)
     const gridSize = useMainStore(state => state.gridSize)
     const gridElements = useMainStore(state => state.gridElements)
     const addGridElement = useMainStore(state => state.addGridElement)
     const loadedElements = useRef<Set<string>>(new Set())
+    let db: Database
 
     const handleGridDrag = (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
         e.preventDefault()
@@ -25,8 +27,8 @@ export function Grid() {
             const deltaX = e.clientX - startX
             const deltaY = e.clientY - startY
 
-            const newX = position.x + deltaX / scale 
-            const newY = position.y + deltaY / scale 
+            const newX = position.x + deltaX / gridScale 
+            const newY = position.y + deltaY / gridScale 
             setPosition({ x: newX < 0 ? newX : 0, y: newY < 0 ? newY : 0 })
         }
 
@@ -41,42 +43,61 @@ export function Grid() {
 
     const handleZoom = (e: React.WheelEvent) => {
         if(!e.ctrlKey) return
-        if (e.deltaY > 0) return setScale(prevScale => Math.max(0.5, prevScale - 0.1))
-        setScale(prevScale => Math.min(2, prevScale + 0.1))
+        if (e.deltaY > 0) return setGridScale(Math.max(0.5, gridScale - 0.1))
+        setGridScale(Math.min(2, gridScale + 0.1))
     }
 
-    const handleGridSize = () => {
+    const handleGridSize = useCallback(() => {
         if (containerRef.current && gridRef.current) {
-            const newWidth = containerRef.current.offsetWidth / scale - position.x
-            const newHeight = containerRef.current.offsetHeight / scale - position.y
+            const newWidth = containerRef.current.offsetWidth / gridScale - position.x
+            const newHeight = containerRef.current.offsetHeight / gridScale - position.y
 
             if (gridSize.width < newWidth) setGridSize({ width: newWidth })
             if (gridSize.height < newHeight) setGridSize({ height: newHeight })
         }
-    }
+    }, [gridSize, position])
 
     useEffect(() => {
-        setGridScale(scale)
         handleGridSize()
-    }, [scale, position])
+        window.addEventListener('resize', handleGridSize)
+        return () => window.removeEventListener('resize', handleGridSize)
+    }, [gridScale, position, handleGridSize])
 
     const loadData = async () => {
         try {
-            const db = await Database.load('sqlite:data.db')
+            if(!db) db = await Database.load('sqlite:data.db')
 
             await db.execute(`CREATE TABLE IF NOT EXISTS notes (
-                id VARCHAR(10) NOT NULL, 
-                content VARCHAR(30), 
-                position VARCHAR(10), 
+                id TEXT NOT NULL, 
+                content TEXT, 
+                position TEXT, 
                 PRIMARY KEY(id))`)
-            await db.execute(`CREATE TABLE IF NOT EXISTS auto_clicker (
-                id VARCHAR(10) NOT NULL, 
-                mouse_button VARCHAR(10), 
-                click_interval INTEGER(10), 
-                click_type VARCHAR(10), 
-                trigger_key VARCHAR(10), 
-                position VARCHAR(10), 
+            await db.execute(`CREATE TABLE IF NOT EXISTS autoClicker (
+                id TEXT NOT NULL, 
+                mouseButton TEXT, 
+                clickInterval INTEGER, 
+                clickType TEXT, 
+                triggerKey TEXT, 
+                position TEXT, 
                 PRIMARY KEY(id))`)
+            await db.execute(`CREATE TABLE IF NOT EXISTS clocks (
+                id TEXT NOT NULL,
+                volume INTEGER,
+                timerRingtone TEXT,
+                activeElement TEXT,
+                position TEXT,
+                PRIMARY KEY(id))`)
+            await db.execute(`CREATE TABLE IF NOT EXISTS alarms (
+                id TEXT NOT NULL,
+                clockId TEXT NOT NULL,
+                label TEXT,
+                time TEXT,
+                postponedTime TEXT,
+                active INTEGER,
+                frequency TEXT,
+                ringtone TEXT,
+                PRIMARY KEY(id),
+                FOREIGN KEY(clockId) REFERENCES clocks(id) ON DELETE CASCADE)`)
 
             const storedNotes: Note[] = await db.select("SELECT * FROM notes")
             storedNotes.forEach(note => {
@@ -86,13 +107,26 @@ export function Grid() {
                 addGridElement(<Notepad id={note.id} dataToLoad={note} key={note.id}/>)
             })
             
-            const [storedClicker]: AutoClicker[] = await db.select("SELECT * FROM auto_clicker")
+            const [storedClicker]: AutoClicker[] = await db.select("SELECT * FROM autoClicker")
             if(storedClicker) {
                 if(loadedElements.current.has(storedClicker.id)) return
                 loadedElements.current.add(storedClicker.id)
                 
                 addGridElement(<AutoClicker id={storedClicker.id} dataToLoad={storedClicker} key={storedClicker.id} />)
             }
+
+            const storedClocks: Clock[] = await db.select("SELECT * FROM clocks")
+            await Promise.all(storedClocks.map(async (clock) => {
+                if(loadedElements.current.has(clock.id)) return
+                loadedElements.current.add(clock.id)
+
+                const storedAlarms: Alarm[] = await db?.select("SELECT * FROM alarms WHERE clockId LIKE $1", [clock.id]) || []
+                storedAlarms.map(alarm => alarm.active === "false" ? alarm.active = false : alarm.active = true)
+
+                const data = { ...clock, alarms: storedAlarms }
+                
+                addGridElement(<Clock id={clock.id} key={clock.id} dataToLoad={data}/>)
+            }))
         } catch (error) {
             console.error("Failed to load data:", error)
         }
@@ -100,8 +134,6 @@ export function Grid() {
 
     useEffect(() => {
         loadData()
-        window.addEventListener('resize', handleGridSize)
-        return () => window.removeEventListener('resize', handleGridSize)
     }, [])
 
     return <>
@@ -114,11 +146,11 @@ export function Grid() {
                 style={{ 
                     width: `${gridSize.width}px`,
                     height: `${gridSize.height}px`,
-                    transform: `scale(${scale}) translate(${position.x}px, ${position.y}px)`
+                    transform: `scale(${gridScale}) translate(${position.x}px, ${position.y}px)`
                 }}>
                 <>{...gridElements}</>
             </div>
-            <div className="scale">{(scale * 100).toFixed(0)} %</div>
+            <div className="scale">{(gridScale * 100).toFixed(0)} %</div>
         </div>
     </>
 }

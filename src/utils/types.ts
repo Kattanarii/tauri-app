@@ -7,11 +7,31 @@ declare global {
 
     type AutoClicker = {
         id: string
-        click_interval: number
-        mouse_button: string
-        click_type: string
-        trigger_key: string
+        clickInterval: number
+        mouseButton: string
+        clickType: string
+        triggerKey: string
         position: string
+    }
+    
+    type Clock = {
+        id: string
+        timerRingtone: string
+        alarms: Alarm[]
+        volume: number
+        activeElement: string
+        position: string
+    }
+
+    type Alarm = {
+        id: string
+        clockId: string
+        label: string
+        time: string
+        postponedTime: string | null
+        active: string | boolean
+        frequency: string
+        ringtone: string
     }
 }
 

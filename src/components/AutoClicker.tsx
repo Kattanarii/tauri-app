@@ -1,9 +1,10 @@
-import { ChangeEvent, useEffect, useRef, useState } from 'react'
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { GridElement } from './GridElement'
 import { ArrowIcon } from '../assets/ArrowIcon'
 import Database from '@tauri-apps/plugin-sql'
 import { listen } from '@tauri-apps/api/event'
+import { useDebounce } from '../hooks/useDebounce'
 
 export function AutoClicker({ id, dataToLoad }: { id: string, dataToLoad?: AutoClicker }) {
     const [ triggerKey, setTriggerKey ] = useState("")
@@ -18,11 +19,7 @@ export function AutoClicker({ id, dataToLoad }: { id: string, dataToLoad?: AutoC
     const buttonDropdown = useRef<HTMLDivElement>(null)
     const typeDropdown = useRef<HTMLDivElement>(null)
     const [ loaded, setLoaded ] = useState(false)
-
-    const handleClickOutside = (e: MouseEvent) => {
-       if(!buttonDropdown.current?.contains(e.target as Node)) setButtonDropdownVisible(false)
-       if(!typeDropdown.current?.contains(e.target as Node)) setTypeDropdownVisible(false)
-    }
+    let db: Database
 
     const handleClickerStart = async () => {
         setClickerActive(true)
@@ -38,7 +35,7 @@ export function AutoClicker({ id, dataToLoad }: { id: string, dataToLoad?: AutoC
         try {
             await invoke('stop_clicker')
         } catch(error) {
-            console.log("Clicker stop error: ")
+            console.log("Clicker stop error: ", error)
         }
     }
 
@@ -60,35 +57,40 @@ export function AutoClicker({ id, dataToLoad }: { id: string, dataToLoad?: AutoC
         return () => window.removeEventListener('keyup', handleChangeTriggerKey)
     }, [listeningToKey])
 
-    const handleKeyPress = async (e: KeyboardEvent) => {  
+    const handleKeyPress = useCallback(async (e: KeyboardEvent) => {  
         if(e.key.toUpperCase() !== triggerKey.toUpperCase() || !e.altKey) return
 
         if(clickerActive) return await handleClickerStop()
         await handleClickerStart()
-    } 
+    }, [clickerActive, triggerKey])
 
     useEffect(() => {
         window.addEventListener('keyup', handleKeyPress)
 
         return () =>  window.removeEventListener('keyup', handleKeyPress)      
-    }, [clickerActive, triggerKey])
+    }, [clickerActive, triggerKey, handleKeyPress])
 
     listen("clicker_state", (e) => setClickerActive(e.payload as boolean))
 
-    const innit = async () => {
-        setClickInterval(dataToLoad?.click_interval ?? 100)
-        setMouseButton(dataToLoad?.mouse_button ?? "Left")
-        setClickType(dataToLoad?.click_type ?? "Single")
-        setTriggerKey(dataToLoad?.trigger_key ?? "`")
+    const innit = useDebounce(async () => {
+        setClickInterval(dataToLoad?.clickInterval ?? 100)
+        setMouseButton(dataToLoad?.mouseButton ?? "Left")
+        setClickType(dataToLoad?.clickType ?? "Single")
+        setTriggerKey(dataToLoad?.triggerKey ?? "`")
         setLoaded(true)
 
         try {
             await invoke("stop_clicker")
             await invoke("innit_clicker")
-            await invoke("change_trigger_key", { trigger_key: dataToLoad?.trigger_key ?? "`" })
+            await invoke("change_trigger_key", { trigger_key: dataToLoad?.triggerKey ?? "`" })
         } catch(error) {
             console.log("Error: ", error)
         }
+    })
+
+    const handleClickOutside = (e: MouseEvent) => {
+        if(!buttonDropdown.current?.contains(e.target as Node)) setButtonDropdownVisible(false)
+        if(!typeDropdown.current?.contains(e.target as Node)) setTypeDropdownVisible(false)
     }
 
     useEffect(() => {
@@ -99,38 +101,39 @@ export function AutoClicker({ id, dataToLoad }: { id: string, dataToLoad?: AutoC
         return () => window.removeEventListener('click', handleClickOutside)
     }, [])
 
-    const saveData = async () => {
+    const saveData = useDebounce(useCallback(async () => {
         if(!loaded) return
+
         try {
-            const db = await Database.load('sqlite:data.db')
+            if(!db) db = await Database.load('sqlite:data.db')
 
-            const [clickerExists]: AutoClicker[] = await db.select("SELECT * FROM auto_clicker WHERE id LIKE $1", [id])
+            const [clickerExists]: AutoClicker[] = await db.select("SELECT * FROM autoClicker WHERE id LIKE $1", [id])
 
-            if(clickerExists) return await db.execute("UPDATE auto_clicker SET click_interval = $1, mouse_button = $2, click_type = $3, trigger_key = $4 WHERE id LIKE $5",
+            if(clickerExists) return await db.execute("UPDATE autoClicker SET clickInterval = $1, mouseButton = $2, clickType = $3, triggerKey = $4 WHERE id LIKE $5",
                 [clickInterval, mouseButton, clickType, triggerKey, id])
 
-            await db.execute("INSERT INTO auto_clicker (id, click_interval, mouse_button, click_type, trigger_key) VALUES($1, $2, $3, $4, $5)", 
+            await db.execute("INSERT INTO autoClicker (id, clickInterval, mouseButton, clickType, triggerKey) VALUES($1, $2, $3, $4, $5)", 
                 [id, clickInterval, mouseButton, clickType, triggerKey])
         } catch (error) {
             console.error("Failed to save clicker:", error)
         }
-    }
+    }, [clickInterval, mouseButton, clickType, triggerKey, loaded]))
 
-    useEffect(() => {
-        saveData()
-    }, [clickInterval, mouseButton, clickType, triggerKey])
+    useEffect(() => { 
+        saveData() 
+    }, [loaded, clickInterval, mouseButton, clickType, triggerKey, saveData])
 
-    const updateClickerState = async () => {
+    const updateClickerState = useDebounce(useCallback(async () => {
         try {
             await invoke("update_clicker_state", { interval: clickInterval, button: mouseButton, click_type: clickType })
         } catch(error) {
             console.log(error)
         }
-    }
+    }, [clickInterval, mouseButton, clickType]))
 
-    useEffect(() => {
-        updateClickerState()
-    }, [clickInterval, mouseButton, clickType])
+    useEffect(() => { 
+        updateClickerState() 
+    }, [clickInterval, mouseButton, clickType, updateClickerState])
 
     const handleInterval = (e: ChangeEvent<HTMLInputElement>) => {
         const value = Math.max(10, Number(e.target.value))

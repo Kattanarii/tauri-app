@@ -5,11 +5,10 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    thread,
     time::Duration,
 };
 use tauri::{self, async_runtime::TokioJoinHandle, AppHandle, Emitter, State};
-use tokio::{sync::Mutex, task};
+use tokio::task;
 
 #[derive(Debug, Clone, Copy)]
 pub enum MouseButton {
@@ -27,11 +26,12 @@ pub enum ClickType {
 #[derive(Clone)]
 pub struct ClickerState {
     pub running: Arc<std::sync::Mutex<AtomicBool>>,
-    pub interval: Arc<Mutex<u64>>,
-    pub button: Arc<Mutex<MouseButton>>,
-    pub click_type: Arc<Mutex<ClickType>>,
-    pub trigger_key: Arc<Mutex<KeybdKey>>,
-    pub thread_handle: Arc<Mutex<Option<TokioJoinHandle<()>>>>,
+    pub interval: Arc<tokio::sync::Mutex<u64>>,
+    pub button: Arc<tokio::sync::Mutex<MouseButton>>,
+    pub click_type: Arc<tokio::sync::Mutex<ClickType>>,
+    pub trigger_key: Arc<tokio::sync::Mutex<KeybdKey>>,
+    pub thread_handle: Arc<tokio::sync::Mutex<Option<TokioJoinHandle<()>>>>,
+    pub input_events_handle: Arc<tokio::sync::Mutex<Option<TokioJoinHandle<()>>>>,
 }
 
 static INPUT_EVENTS_RUNNING: AtomicBool = AtomicBool::new(false);
@@ -155,6 +155,7 @@ pub async fn update_clicker_state<'a>(state: State<'a, ClickerState>, interval: 
 
     if let Some(handle) = thread_handle_arc.lock().await.take() {
         handle.abort();
+        handle.await.ok();
     }
 
     *thread_handle_arc.lock().await = Some(task::spawn(async move {
@@ -195,6 +196,8 @@ pub async fn update_clicker_state<'a>(state: State<'a, ClickerState>, interval: 
                 }
 
                 tokio::time::sleep(Duration::from_millis(interval)).await;
+            } else {
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
         }
     }));
@@ -232,11 +235,7 @@ pub async fn change_trigger_key<'a>(
 
 #[tauri::command]
 pub async fn stop_clicker<'a>(state: State<'a, ClickerState>, app: AppHandle) -> Result<(), String> {
-    let thread_handle_arc = state.thread_handle.clone();
-    if let Some(handle) = thread_handle_arc.lock().await.take() {
-        handle.abort();
-    }
-
+    println!("stop");
     state.running.lock().unwrap().store(false, Ordering::SeqCst);
     app.emit("clicker_state", false).unwrap();
 
@@ -252,6 +251,7 @@ pub async fn innit_clicker(state: State<'_, ClickerState>, app: AppHandle ) -> R
     let click_type_arc = state.click_type.clone();
     let interval_arc = state.interval.clone();
     let trigger_key_arc = state.trigger_key.clone();
+    let input_events_handle_arc = state.input_events_handle.clone();
 
     trigger_key_arc.lock().await.unbind();
     trigger_key_arc.lock().await.bind(move || {
@@ -267,14 +267,15 @@ pub async fn innit_clicker(state: State<'_, ClickerState>, app: AppHandle ) -> R
         }
     });
 
-    thread::spawn(move || {
+    *input_events_handle_arc.lock().await = Some(task::spawn(async move {
         if INPUT_EVENTS_RUNNING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
             inputbot::handle_input_events();
         }
-    });
+    }));
 
     if let Some(handle) = thread_handle_arc.lock().await.take() {
         handle.abort();
+        handle.await.ok();
     }
 
     *thread_handle_arc.lock().await = Some(task::spawn(async move {
@@ -288,7 +289,7 @@ pub async fn innit_clicker(state: State<'_, ClickerState>, app: AppHandle ) -> R
                 let mut enigo = Enigo::new(&Settings::default()).unwrap();
                 let button = button_arc.lock().await.clone();
                 let click_type = click_type_arc.lock().await.clone();
-                let interval = *interval_arc.lock().await;
+                let interval: u64 = *interval_arc.lock().await;
 
                 match button {
                     MouseButton::Left => match click_type {
@@ -315,9 +316,29 @@ pub async fn innit_clicker(state: State<'_, ClickerState>, app: AppHandle ) -> R
                 }
 
                 tokio::time::sleep(Duration::from_millis(interval)).await;
+            } else {
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
         }
     }));
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn close_clicker<'a>(state: State<'a, ClickerState>) -> Result<(), String> {
+    let thread_handle_arc = state.thread_handle.clone();
+    let input_events_handle_arc = state.input_events_handle.clone();
+
+    if let Some(handle) = thread_handle_arc.lock().await.take() {
+        handle.abort();
+        handle.await.ok();
+    }
+
+    if let Some(handle) = input_events_handle_arc.lock().await.take() {
+        handle.abort();
+        handle.await.ok();
+    }
 
     Ok(())
 }

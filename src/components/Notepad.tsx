@@ -1,16 +1,18 @@
 import { convertFromRaw, convertToRaw, Editor, EditorState, RichUtils } from "draft-js"
 import { GridElement } from "./GridElement"
-import { useEffect, useState } from "react"
-import { BoldIcon } from "../assets/BoldIcon"
-import { ItalicIcon } from "../assets/ItalicIcon"
-import { UnderlineIcon } from "../assets/UnderlineIcon"
-import { ListIcon } from "../assets/ListIcon"
-import { NumberedListIcon } from "../assets/NumberedListIcon"
-import { StrikethroughIcon } from "../assets/StrikethroughIcon"
+import { useCallback, useEffect, useState } from "react"
+import { BoldIcon } from "../assets/NoteIcons/BoldIcon"
+import { ItalicIcon } from "../assets/NoteIcons/ItalicIcon"
+import { UnderlineIcon } from "../assets/NoteIcons/UnderlineIcon"
+import { ListIcon } from "../assets/NoteIcons/ListIcon"
+import { NumberedListIcon } from "../assets/NoteIcons/NumberedListIcon"
+import { StrikethroughIcon } from "../assets/NoteIcons/StrikethroughIcon"
 import Database from "@tauri-apps/plugin-sql"
+import { useDebounce } from "../hooks/useDebounce"
 
 export function Notepad({ id, dataToLoad }: { id: string, dataToLoad?: Note }) {
     const [ editorState, setEditorState ] = useState(() => EditorState.createEmpty())
+    let db: Database
 
     const toggleInlineStyle = (style: string) => {
         const newState = RichUtils.toggleInlineStyle(editorState, style)
@@ -22,9 +24,9 @@ export function Notepad({ id, dataToLoad }: { id: string, dataToLoad?: Note }) {
         setEditorState(newState)
     }
 
-    const saveNote = async () => {
+    const saveNote = useDebounce(useCallback(async () => {
         try {
-            const db = await Database.load('sqlite:data.db')
+            if(!db) db = await Database.load('sqlite:data.db')
 
             const rawContent = convertToRaw(editorState.getCurrentContent())
             const hasText = rawContent.blocks.some(block => block.text.trim() !== "")
@@ -38,11 +40,11 @@ export function Notepad({ id, dataToLoad }: { id: string, dataToLoad?: Note }) {
         } catch (error) {
             console.error("Failed to save note:", error)
         }
-    }
+    }, [editorState]))
 
-    useEffect(() => {
-        saveNote()
-    }, [editorState])
+    useEffect(() => { 
+        saveNote() 
+    }, [editorState, saveNote])
 
     useEffect(() => {
         if(dataToLoad?.content) {

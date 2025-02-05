@@ -1,6 +1,9 @@
-import { BaseSyntheticEvent, useEffect, useRef, useState } from "react"
+import { BaseSyntheticEvent, useCallback, useEffect, useRef, useState } from "react"
 import { useMainStore } from "../store/useMainStore"
 import Database from "@tauri-apps/plugin-sql"
+import { useDebounce } from "../hooks/useDebounce"
+import { invoke } from "@tauri-apps/api/core"
+import { BaseDirectory, remove } from "@tauri-apps/plugin-fs"
 
 export function GridElement({ children, id, storedPosition, defaultSize, type }: { children: React.ReactNode, id: string, storedPosition?: string, defaultSize: string, type: string }) {
     const [ position, setPosition ] = useState({ row: 0, col: 0 })
@@ -13,6 +16,7 @@ export function GridElement({ children, id, storedPosition, defaultSize, type }:
     const [ loaded, setLoaded ] = useState(false)
     const setAutoClickerLimit = useMainStore(state => state.setAutoClickerLimit)
     const removeGridElement = useMainStore(state => state.removeGridElement)
+    let db: Database
 
     const handleResizeBoth = (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
         e.preventDefault()
@@ -28,7 +32,7 @@ export function GridElement({ children, id, storedPosition, defaultSize, type }:
             let newRowSpan = 1
             let newColSpan = 1
 
-            if(type === 'clicker') {
+            if(type === 'clicker' || type === 'clock') {
                 const data = defaultSize.match(/\d+/g)?.map(Number) as number[]
 
                 newRowSpan = Math.max(data[2], Math.round((size.rowSpan * gridCellSize + deltaY / scale) / gridCellSize))
@@ -62,7 +66,7 @@ export function GridElement({ children, id, storedPosition, defaultSize, type }:
             elementRef.current?.classList.add('resize-horizontal')
 
             let newColSpan = 1
-            if(type === 'clicker') {
+            if(type === 'clicker' || type === 'clock') {
                 const data = defaultSize.match(/\d+/g)?.map(Number) as number[]
 
                 newColSpan = Math.max(data[3], Math.round((size.colSpan * gridCellSize + deltaX / scale) / gridCellSize))
@@ -94,7 +98,7 @@ export function GridElement({ children, id, storedPosition, defaultSize, type }:
             elementRef.current?.classList.add('resize-vertical')
 
             let newRowSpan = 1
-            if(type === 'clicker') {
+            if(type === 'clicker' || type === 'clock') {
                 const data = defaultSize.match(/\d+/g)?.map(Number) as number[]
 
                 newRowSpan = Math.max(data[2], Math.round((size.rowSpan * gridCellSize + deltaY / scale) / gridCellSize)) 
@@ -142,47 +146,52 @@ export function GridElement({ children, id, storedPosition, defaultSize, type }:
         document.addEventListener("mouseup", handleMouseUp)
     }
 
-    const saveData = async () => {
+    const saveData = useDebounce(useCallback(async () => {
         if(!loaded) return
         try {
-            const db = await Database.load('sqlite:data.db')
+            if(!db) db = await Database.load('sqlite:data.db')
+            const newPosition = `${position.row} / ${position.col} / span ${size.rowSpan} / span ${size.colSpan}` 
 
             if(type === 'note') {
                 const [noteExists]: Note[] = await db.select("SELECT * FROM notes WHERE id LIKE $1", [id])
     
-                const newPosition = `${position.row} / ${position.col} / span ${size.rowSpan} / span ${size.colSpan}` 
-                
                 if(noteExists) return await db.execute("UPDATE notes SET position = $1 WHERE id LIKE $2", [newPosition, id])
     
-                await db.execute("INSERT INTO notes (id, position) VALUES($1, $2)", [id, newPosition])
+                return await db.execute("INSERT INTO notes (id, position) VALUES($1, $2)", [id, newPosition])
             }
 
             if(type === 'clicker') {
-                const [clickerExists]: AutoClicker[] = await db.select("SELECT * FROM auto_clicker WHERE id LIKE $1", [id])
-    
-                const newPosition = `${position.row} / ${position.col} / span ${size.rowSpan} / span ${size.colSpan}` 
+                const [clickerExists]: AutoClicker[] = await db.select("SELECT * FROM autoClicker WHERE id LIKE $1", [id])
                 
-                if(clickerExists) return await db.execute("UPDATE auto_clicker SET position = $1 WHERE id LIKE $2", [newPosition, id])
+                if(clickerExists) return await db.execute("UPDATE autoClicker SET position = $1 WHERE id LIKE $2", [newPosition, id])
     
-                await db.execute("INSERT INTO auto_clicker (id, position) VALUES($1, $2)", [id, newPosition])
+                return await db.execute("INSERT INTO autoClicker (id, position) VALUES($1, $2)", [id, newPosition])
+            }
+
+            if(type === 'clock') {
+                const [clockExists]: Clock[] = await db.select("SELECT * FROM clocks WHERE id LIKE $1", [id])
+
+                if(clockExists) return await db.execute("UPDATE clocks SET position = $1 WHERE id LIKE $2", [newPosition, id])
+
+                return await db.execute("INSERT INTO clocks (id, position) VALUES($1, $2)", [id, newPosition])     
             }
         } catch (error) {
             console.error("Failed to save data:", error)
         }
-    }
+    }, [position, size]))
 
-    const handleGridSize = () => {
+    const handleGridSize = useCallback(() => {
         const newWidth = (position.col + size.colSpan) * gridCellSize
         const newHeight = (position.row + size.rowSpan) * gridCellSize
-
+        
         if (gridSize.width < newWidth) setGridSize({ width: newWidth })
         if (gridSize.height < newHeight) setGridSize({ height: newHeight })
-    }
+    }, [position, size])
 
     useEffect(() => {
         saveData()
         handleGridSize()
-    }, [position, size])
+    }, [position, size, saveData, handleGridSize])
 
     useEffect(() => {
         const data = storedPosition?.match(/\d+/g)?.map(Number)
@@ -209,25 +218,46 @@ export function GridElement({ children, id, storedPosition, defaultSize, type }:
 
     const handleClose = async () => {
         removeGridElement(id)
-        if(type === 'note') {
-            try {
-                const db = await Database.load("sqlite:data.db")
-    
-                await db.execute("DELETE FROM notes WHERE id LIKE $1", [id])
-            } catch(error) {
-                console.log("Failed to delete note: ", error)
-            }
-        }
-        if(type === 'clicker') {
-            setAutoClickerLimit(1)
-            try {
-                const db = await Database.load("sqlite:data.db")
+        if(!db) db = await Database.load("sqlite:data.db")
+        try {
+            if(type === 'note') return await db.execute("DELETE FROM notes WHERE id LIKE $1", [id])
 
-                await db.execute("DELETE FROM auto_clicker WHERE id LIKE $1", [id])
-            } catch(error) {
-                console.log("Failed to delete clicker: ", error)
+            if(type === 'clicker') {
+                setAutoClickerLimit(1)
+                await db.execute("DELETE FROM autoClicker WHERE id LIKE $1", [id])
+                await invoke("close_clicker")
+                return
             }
-        }
+            
+            if(type === 'clock') {
+                const clockFiles = new Set<string>()
+                const remainingFiles = new Set<string>()
+                const filesToDelete = new Set<string>()
+
+                const [clockToDelete]: Clock[] = await db.select("SELECT * FROM clocks WHERE id = $1", [id])
+                const clockToDeleteAlarms: Alarm[] = await db.select("SELECT * FROM alarms WHERE clockId = $1", [id])
+                clockFiles.add(clockToDelete.timerRingtone)
+                clockToDeleteAlarms.forEach(alarm => clockFiles.add(alarm.ringtone))
+
+                const remainingClocks: Clock[] = await db.select("SELECT * FROM clocks WHERE id NOT LIKE $1", [id])
+                const remainingAlarms: Alarm[] = await db.select("SELECT * FROM alarms WHERE clockId NOT LIKE $1", [id])
+                remainingClocks.forEach(clock => remainingFiles.add(clock.timerRingtone))
+                remainingAlarms.forEach(alarm => remainingFiles.add(alarm.ringtone))
+
+                clockFiles.forEach(file => { if(!remainingFiles.has(file)) filesToDelete.add(file) })
+                    
+                await db.execute("DELETE FROM clocks WHERE id LIKE $1", [id])
+                await invoke("stop_ringtone")  
+
+                for(const file of filesToDelete) {
+                    if(file === 'alarm-default.mp3') return
+                    await remove(file, { baseDir: BaseDirectory.AppData })
+                }
+                return
+            } 
+        } catch(error) {
+            console.log("Failed to delete element: ", error)
+        } 
     }
 
     return <>

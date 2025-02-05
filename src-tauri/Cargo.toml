@@ -27,4 +27,6 @@ tauri-plugin-fs = "2"
 enigo = "0.3.0"
 inputbot = "0.6.0"
 tokio = "1.42.0"
+rodio = "0.20.1"
+zip = "2.2.2"
 
