@@ -4,6 +4,8 @@ import { Notepad } from "./Notepad"
 import Database from "@tauri-apps/plugin-sql"
 import { AutoClicker } from "./AutoClicker"
 import { Clock } from "./Clock/Clock"
+import * as path from '@tauri-apps/api/path'
+import { invoke } from "@tauri-apps/api/core"
 
 export function Grid() {
     const [ position, setPosition ] = useState({ x: 0, y: 0 })
@@ -65,6 +67,8 @@ export function Grid() {
 
     const loadData = async () => {
         try {
+            await invoke("add_default_alarm", { dst: await path.appDataDir() + '/alarm-default.mp3' })
+
             if(!db) db = await Database.load('sqlite:data.db')
 
             await db.execute(`CREATE TABLE IF NOT EXISTS notes (

@@ -76,6 +76,13 @@ fn import(src: String, dst: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command(rename_all = "snake_case")]
+fn add_default_alarm(dst: String) {
+    if let Err(e) = fs::copy("./assets/alarm-default.mp3", dst) {
+        println!("Error copying file: {}", e);
+    }
+}
+
 pub fn run() {
     let clicker_state = ClickerState {
         running: Arc::new(std::sync::Mutex::new(AtomicBool::new(false))),
@@ -106,7 +113,8 @@ pub fn run() {
             stop_ringtone,
             set_volume,
             export,
-            import
+            import,
+            add_default_alarm
         ])
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
